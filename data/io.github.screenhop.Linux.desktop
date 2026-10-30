@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=华为键鼠穿越 Linux
+Comment=在多台设备间穿越键盘与鼠标
+Exec=screenhop-linux
+Icon=screenhop
+Terminal=false
+Type=Application
+Categories=Utility;GTK;
+StartupNotify=true
+

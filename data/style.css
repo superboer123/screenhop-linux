@@ -1,0 +1,11 @@
+.card { background: @card_bg_color; border-radius: 16px; padding: 18px; box-shadow: 0 1px 4px alpha(black,.12); }
+.layout-canvas { background: alpha(@window_fg_color, .025); border: 1px solid alpha(@window_fg_color, .10); border-radius: 20px; }
+.device-card { background: @card_bg_color; border: 2px solid alpha(@window_fg_color, .08); border-radius: 15px; padding: 10px; min-width: 136px; min-height: 76px; box-shadow: 0 2px 7px alpha(black,.10); transition: 160ms ease; }
+.device-card.local { border-color: alpha(@accent_color, .70); }
+.device-card.peer { border-color: alpha(@accent_color, .25); }
+.device-card.dragging { border-color: @accent_color; box-shadow: 0 9px 22px alpha(black,.24); opacity: .92; }
+.slot-badge { background: alpha(@accent_color, .14); color: @accent_color; border-radius: 999px; padding: 3px 10px; font-weight: bold; }
+.layout-hint { color: alpha(@window_fg_color, .62); }
+.device-kind { color: alpha(@window_fg_color, .60); font-size: 0.9em; }
+.accent { color: @accent_color; font-weight: bold; }
+

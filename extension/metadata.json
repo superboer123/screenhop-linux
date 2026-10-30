@@ -1,0 +1,7 @@
+{
+  "uuid": "screenhop@open-source",
+  "name": "ScreenHop Pointer Edge",
+  "description": "Reports compositor pointer-edge crossings to ScreenHop Linux.",
+  "shell-version": ["50"],
+  "version": 1
+}

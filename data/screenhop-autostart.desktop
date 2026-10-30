@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=ScreenHop Linux
+Exec=screenhop-linux --background
+Icon=screenhop
+X-GNOME-Autostart-enabled=true
+NoDisplay=true
+
