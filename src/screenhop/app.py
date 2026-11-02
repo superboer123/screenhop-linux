@@ -15,6 +15,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 from dbus.mainloop.glib import DBusGMainLoop  # noqa: E402
 
+from . import __version__
 from .bluez import BluezCrossing
 from .config import Config
 from .edge import EdgeClient
@@ -266,6 +267,10 @@ class MainWindow(Adw.ApplicationWindow):
         controls.append(refresh_btn)
         self.extension_state = Gtk.Label(label="边缘检测：检查中", xalign=1, hexpand=True)
         controls.append(self.extension_state)
+        version_label = Gtk.Label(label=f"v{__version__}", xalign=1)
+        version_label.add_css_class("dim-label")
+        version_label.set_tooltip_text(f"ScreenHop Linux {__version__}")
+        controls.append(version_label)
         page.append(controls)
         self.log = Gtk.Label(label="", visible=False)
         self.set_content(root)
