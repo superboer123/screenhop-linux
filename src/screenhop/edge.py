@@ -29,6 +29,24 @@ class EdgeClient:
         self.bus.add_signal_receiver(
             self._edge, signal_name="EdgeReached", dbus_interface=IFACE,
             bus_name=BUS_NAME, path=OBJ_PATH)
+        # GNOME may unmap XWayland override-redirect windows while the session
+        # is locked. Recreate their mapped state as soon as the session resumes.
+        self.bus.add_signal_receiver(
+            self._screen_state_changed,
+            signal_name="ActiveChanged",
+            dbus_interface="org.gnome.ScreenSaver",
+            path="/org/gnome/ScreenSaver",
+        )
+        try:
+            self.system_bus = dbus.SystemBus()
+            self.system_bus.add_signal_receiver(
+                self._sleep_state_changed,
+                signal_name="PrepareForSleep",
+                dbus_interface="org.freedesktop.login1.Manager",
+                path="/org/freedesktop/login1",
+            )
+        except dbus.DBusException:
+            self.system_bus = None
 
     def _extension_available(self) -> bool:
         try:
@@ -37,6 +55,7 @@ class EdgeClient:
             return False
 
     def available(self) -> bool:
+        self.fallback.ensure_running()
         return self._extension_available() or self.fallback.available
 
     def configure(self, enabled: bool, threshold: int, edges: list[int]) -> None:
@@ -62,6 +81,14 @@ class EdgeClient:
 
     def rearm_after_failure(self) -> None:
         self.fallback.rearm_on_motion(0.35, "request-failed")
+
+    def _screen_state_changed(self, active) -> None:
+        if not bool(active):
+            self.fallback.reset("screen-unlocked")
+
+    def _sleep_state_changed(self, sleeping) -> None:
+        if not bool(sleeping):
+            self.fallback.reset("system-resumed")
 
     def _edge(self, direction, x, y):
         self.callback(int(direction), int(x), int(y))
@@ -115,11 +142,26 @@ class X11EdgeWatcher:
         self._motion_can_cross = False
         self._last_pointer: tuple[int, int] | None = None
         self._last_motion_event = 0.0
+        self._reset_requested = False
         self._library = ctypes.util.find_library("X11")
         self.available = bool(os.environ.get("DISPLAY") and self._library)
+        self._thread = None
         if self.available:
-            threading.Thread(target=self._run, daemon=True,
-                             name="screenhop-xedge").start()
+            self.ensure_running()
+
+    def ensure_running(self) -> None:
+        if not os.environ.get("DISPLAY") or not self._library:
+            return
+        with self._lock:
+            if self._thread is not None and self._thread.is_alive():
+                return
+            self.available = True
+            self._thread = threading.Thread(
+                target=self._run,
+                daemon=True,
+                name="screenhop-xedge",
+            )
+            self._thread.start()
 
     def configure(self, enabled, threshold, edges):
         with self._lock:
@@ -135,6 +177,17 @@ class X11EdgeWatcher:
             self._last_pointer = None
             self._last_motion_event = time.monotonic()
         logging.info("XWayland edge scheduled re-arm: %s", reason)
+
+    def reset(self, reason: str) -> None:
+        """Remap all edge surfaces after unlock/resume and re-arm safely."""
+        with self._lock:
+            self._reset_requested = True
+            self._armed = False
+            self._arm_at = time.monotonic() + 0.35
+            self._motion_can_cross = True
+            self._last_pointer = None
+        logging.info("XWayland edge reset requested: %s", reason)
+        self.ensure_running()
 
     @staticmethod
     def _bind_xlib(x11):
@@ -213,6 +266,16 @@ class X11EdgeWatcher:
                 with self._lock:
                     threshold = self.threshold
                     wanted = set(self.edges) if self.enabled else set()
+                    reset_requested = self._reset_requested
+                    self._reset_requested = False
+
+                if reset_requested:
+                    for win in tuple(mapped):
+                        x11.XUnmapWindow(display, win)
+                    mapped.clear()
+                    last_geometry.clear()
+                    x11.XFlush(display)
+                    logging.info("XWayland edge surfaces remapped")
 
                 geometries = {
                     1: (0, 0, width, threshold),
@@ -247,19 +310,28 @@ class X11EdgeWatcher:
 
                 with self._lock:
                     should_arm = (not self._armed and self._arm_at and
-                                  time.monotonic() >= self._arm_at and
-                                  time.monotonic() - self._last_motion_event >= 0.45)
+                                  time.monotonic() >= self._arm_at)
                 if should_arm and x11.XQueryPointer(
                         display, root, ctypes.byref(root_return),
                         ctypes.byref(child_return), ctypes.byref(root_x),
                         ctypes.byref(root_y), ctypes.byref(win_x),
                         ctypes.byref(win_y), ctypes.byref(mask)):
+                    px, py = root_x.value, root_y.value
+                    on_enabled_edge = (
+                        (1 in wanted and py < threshold) or
+                        (2 in wanted and py >= height - threshold) or
+                        (3 in wanted and px < threshold) or
+                        (4 in wanted and px >= width - threshold)
+                    )
                     with self._lock:
-                        self._armed = True
-                        self._arm_at = 0.0
-                        self._last_pointer = (root_x.value, root_y.value)
-                    logging.info("XWayland edge re-armed at %d,%d",
-                                 root_x.value, root_y.value)
+                        if on_enabled_edge:
+                            self._arm_at = time.monotonic() + 0.12
+                        else:
+                            self._armed = True
+                            self._arm_at = 0.0
+                            self._last_pointer = (px, py)
+                    if not on_enabled_edge:
+                        logging.info("XWayland edge re-armed at %d,%d", px, py)
 
                 if not x11.XPending(display):
                     time.sleep(0.01)
@@ -318,5 +390,6 @@ class X11EdgeWatcher:
                 self.callback(direction, max(0, min(1000, nx)),
                               max(0, min(1000, ny)))
         except Exception:
+            logging.exception("XWayland edge watcher stopped")
             self.available = False
 

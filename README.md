@@ -19,6 +19,8 @@ Bluetooth LE GATT 协议，与 Windows/macOS 端互通，实现鼠标从屏幕�
 - 穿越开关与鼠标硬件状态同步；
 - 兼容键盘的“键盘跟随鼠标”设置入口；
 - 登录桌面后自动启动，可在界面中随时开关；
+- 关闭主窗口后继续后台穿越，并提供系统托盘图标用于显示或隐藏窗口；
+- 锁屏、解锁和系统休眠恢复后自动重建边缘检测；
 - `screenhopctl` 命令行诊断工具。
 
 ## 兼容性
@@ -27,8 +29,8 @@ Bluetooth LE GATT 协议，与 Windows/macOS 端互通，实现鼠标从屏幕�
 
 | 项目 | 状态 |
 | --- | --- |
-| Ubuntu 24.04 | 已验证 |
-| GNOME 46/50 Wayland | 已验证 |
+| Ubuntu 26.04.1 LTS | 已验证 |
+| GNOME Shell 50.1 Wayland | 已验证 |
 | HUAWEI Mouse WYN | 已验证 |
 | Windows ↔ Linux 双向穿越 | 已验证 |
 | 可视化布局同步 | 已验证 |
@@ -41,7 +43,7 @@ Bluetooth LE GATT 协议，与 Windows/macOS 端互通，实现鼠标从屏幕�
 从 [Releases](https://github.com/superboer123/screenhop-linux/releases/latest) 下载最新 `.deb`：
 
 ```bash
-sudo apt install ./screenhop-linux_0.7.1_all.deb
+sudo apt install ./screenhop-linux_0.8.0_all.deb
 gnome-extensions enable screenhop@open-source
 ```
 
@@ -88,7 +90,7 @@ cd screenhop-linux
 
 python3 -m pytest tests/test_protocol.py
 sh packaging/build-deb.sh
-sudo apt install ./dist/screenhop-linux_0.7.1_all.deb
+sudo apt install ./dist/screenhop-linux_0.8.0_all.deb
 ```
 
 ## 实现结构

@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 from pathlib import Path
 
+import dbus
+import dbus.service
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -31,6 +34,82 @@ from .protocol import (
     set_host_info,
     set_layout,
 )
+
+
+class TrayIcon(dbus.service.Object):
+    """Minimal StatusNotifierItem used by GNOME/KDE tray implementations."""
+
+    IFACE = "org.kde.StatusNotifierItem"
+    PROPERTIES = "org.freedesktop.DBus.Properties"
+
+    def __init__(self, activate_callback):
+        self.bus = dbus.SessionBus()
+        self.activate_callback = activate_callback
+        self.bus_name_text = "org.kde.StatusNotifierItem.ScreenHop"
+        self.bus_name = dbus.service.BusName(self.bus_name_text, bus=self.bus)
+        super().__init__(self.bus_name, "/StatusNotifierItem")
+        self._register()
+        GLib.timeout_add_seconds(5, self._register)
+
+    def _values(self):
+        return {
+            "Category": dbus.String("ApplicationStatus"),
+            "Id": dbus.String("screenhop-linux"),
+            "Title": dbus.String("键鼠穿越"),
+            "Status": dbus.String("Active"),
+            "WindowId": dbus.UInt32(0),
+            "IconName": dbus.String("screenhop"),
+            "IconThemePath": dbus.String("/usr/share/icons/hicolor"),
+            "ItemIsMenu": dbus.Boolean(False),
+            "Menu": dbus.ObjectPath("/NO_DBUSMENU"),
+        }
+
+    def _register(self):
+        try:
+            watcher = self.bus.get_object(
+                "org.kde.StatusNotifierWatcher",
+                "/StatusNotifierWatcher",
+            )
+            dbus.Interface(
+                watcher,
+                "org.kde.StatusNotifierWatcher",
+            ).RegisterStatusNotifierItem(self.bus_name_text)
+        except dbus.DBusException:
+            pass
+        return True
+
+    @dbus.service.method(PROPERTIES, in_signature="ss", out_signature="v")
+    def Get(self, interface, name):
+        if interface != self.IFACE or name not in self._values():
+            raise dbus.exceptions.DBusException(
+                "org.freedesktop.DBus.Error.InvalidArgs",
+                "Unknown property",
+            )
+        return self._values()[name]
+
+    @dbus.service.method(PROPERTIES, in_signature="s", out_signature="a{sv}")
+    def GetAll(self, interface):
+        return self._values() if interface == self.IFACE else {}
+
+    @dbus.service.method(PROPERTIES, in_signature="ssv", out_signature="")
+    def Set(self, _interface, _name, _value):
+        return
+
+    @dbus.service.method(IFACE, in_signature="ii", out_signature="")
+    def Activate(self, _x, _y):
+        GLib.idle_add(self.activate_callback)
+
+    @dbus.service.method(IFACE, in_signature="ii", out_signature="")
+    def SecondaryActivate(self, _x, _y):
+        GLib.idle_add(self.activate_callback)
+
+    @dbus.service.method(IFACE, in_signature="ii", out_signature="")
+    def ContextMenu(self, _x, _y):
+        GLib.idle_add(self.activate_callback)
+
+    @dbus.service.method(IFACE, in_signature="is", out_signature="")
+    def Scroll(self, _delta, _orientation):
+        return
 
 
 class MainWindow(Adw.ApplicationWindow):
@@ -702,12 +781,31 @@ X-GNOME-Autostart-enabled=false
 
 
 class ScreenHopApp(Adw.Application):
-    def __init__(self):
+    def __init__(self, background=False):
         super().__init__(
             application_id="io.github.screenhop.Linux",
             flags=Gio.ApplicationFlags.DEFAULT_FLAGS,
         )
         self.window = None
+        self.tray = None
+        self._suppress_first_present = bool(background)
+
+    def _show_window(self):
+        if not self.window:
+            return False
+        self.window.unmaximize()
+        self.window.set_default_size(920, 650)
+        self.window.present()
+        return False
+
+    def _toggle_window(self):
+        if not self.window:
+            return False
+        if self.window.get_visible():
+            self.window.set_visible(False)
+        else:
+            self._show_window()
+        return False
 
     def do_activate(self):
         css_path = Path("/usr/lib/screenhop/style.css")
@@ -723,13 +821,18 @@ class ScreenHopApp(Adw.Application):
             )
         if not self.window:
             self.window = MainWindow(self)
-        self.window.present()
+        if not self.tray:
+            self.tray = TrayIcon(self._toggle_window)
+        if self._suppress_first_present:
+            self._suppress_first_present = False
+        else:
+            self._show_window()
 
 
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     DBusGMainLoop(set_as_default=True)
-    app = ScreenHopApp()
+    app = ScreenHopApp(background="--background" in sys.argv)
     return app.run(["screenhop"])
 
 
