@@ -59,7 +59,19 @@ class EdgeClient:
         return self._extension_available() or self.fallback.available
 
     def configure(self, enabled: bool, threshold: int, edges: list[int]) -> None:
-        if self._extension_available():
+        self.fallback.ensure_running()
+        # global.stage only receives reliable pointer motion over Shell chrome
+        # on recent GNOME Wayland releases (for example the top-left hot
+        # corner). Prefer the thin XWayland edge surfaces when available so
+        # the complete screen edge remains active over normal applications.
+        if self.fallback.available:
+            if self._extension_available():
+                obj = self.bus.get_object(BUS_NAME, OBJ_PATH)
+                iface = dbus.Interface(obj, IFACE)
+                iface.Configure(False, dbus.UInt32(threshold),
+                                dbus.Array([], signature="u"))
+            self.fallback.configure(enabled, threshold, edges)
+        elif self._extension_available():
             obj = self.bus.get_object(BUS_NAME, OBJ_PATH)
             iface = dbus.Interface(obj, IFACE)
             iface.Configure(bool(enabled), dbus.UInt32(threshold),
@@ -69,10 +81,10 @@ class EdgeClient:
             self.fallback.configure(enabled, threshold, edges)
 
     def backend_name(self) -> str:
-        if self._extension_available():
-            return "GNOME Shell"
         if self.fallback.available:
             return "XWayland 边缘窗口"
+        if self._extension_available():
+            return "GNOME Shell"
         return "未就绪"
 
     def mark_inbound(self) -> None:
@@ -91,6 +103,8 @@ class EdgeClient:
             self.fallback.reset("system-resumed")
 
     def _edge(self, direction, x, y):
+        if self.fallback.available:
+            return
         self.callback(int(direction), int(x), int(y))
 
 

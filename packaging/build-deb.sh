@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
-VERSION=${VERSION:-0.8.1}
+VERSION=${VERSION:-0.8.2}
 ARCH=${ARCH:-all}
 OUT="$ROOT/dist"
 PKG="$OUT/screenhop-linux_${VERSION}_${ARCH}"

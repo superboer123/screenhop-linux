@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import sys
 import threading
+import time
 from pathlib import Path
 
 import dbus
@@ -153,6 +154,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._ui_directions = {}
         self._syncing_switch = False
         self._connecting = False
+        self._last_cross_request = 0.0
         self._build_ui()
         self.connect("close-request", self._hide_window)
         GLib.timeout_add_seconds(1, self._refresh_extension)
@@ -494,6 +496,7 @@ class MainWindow(Adw.ApplicationWindow):
             try:
                 func()
             except Exception as exc:
+                logging.exception("ScreenHop background operation failed")
                 GLib.idle_add(self._set_status, f"错误：{exc}")
 
         threading.Thread(target=task, daemon=True).start()
@@ -523,8 +526,8 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _connection_watch(self):
         address = str(self.config.data.get("device_address", ""))
-        connected = bool(address and self.bluez.is_connected(address))
-        if not connected:
+        transport_ready = bool(self.bluez.rx_path and self.bluez.tx_path)
+        if not transport_ready:
             if self.hosts:
                 self.hosts = []
                 self.layout = {}
@@ -595,10 +598,29 @@ X-GNOME-Autostart-enabled=false
             return
         if direction not in [int(item) for item in self.config.data["enabled_edges"]]:
             return
+        now = time.monotonic()
+        if now - self._last_cross_request < 1.0:
+            return
         target = self._target_for_edge(direction)
         if target is None:
             self.edge.rearm_after_failure()
             return
+
+        # Put the pointer safely inside the destination display. Using 5/995
+        # leaves it inside the peer's crossing detector and can immediately
+        # bounce it back to Linux, especially at a corner.
+        margin = 20
+        x = max(margin, min(1000 - margin, int(x)))
+        y = max(margin, min(1000 - margin, int(y)))
+        if int(direction) == int(Direction.TOP):
+            y = 1000 - margin
+        elif int(direction) == int(Direction.BOTTOM):
+            y = margin
+        elif int(direction) == int(Direction.LEFT):
+            x = 1000 - margin
+        elif int(direction) == int(Direction.RIGHT):
+            x = margin
+        self._last_cross_request = now
 
         def send_cross():
             try:
