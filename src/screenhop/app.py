@@ -38,18 +38,107 @@ from .protocol import (
 )
 
 
+class TrayMenu(dbus.service.Object):
+    """Small DBusMenu exposed when the tray icon is right-clicked."""
+
+    IFACE = "com.canonical.dbusmenu"
+
+    def __init__(self, bus_name, toggle_callback, quit_callback):
+        self.toggle_callback = toggle_callback
+        self.quit_callback = quit_callback
+        self.revision = 1
+        super().__init__(bus_name, "/StatusNotifierMenu")
+
+    @staticmethod
+    def _properties(item_id):
+        if item_id == 0:
+            values = {"children-display": dbus.String("submenu")}
+            return dbus.Dictionary(values, signature="sv")
+        if item_id == 1:
+            values = {
+                "label": dbus.String("显示/隐藏窗口"),
+                "enabled": dbus.Boolean(True),
+                "visible": dbus.Boolean(True),
+            }
+            return dbus.Dictionary(values, signature="sv")
+        if item_id == 2:
+            values = {"type": dbus.String("separator"), "visible": dbus.Boolean(True)}
+            return dbus.Dictionary(values, signature="sv")
+        if item_id == 3:
+            values = {
+                "label": dbus.String("退出键鼠穿越"),
+                "enabled": dbus.Boolean(True),
+                "visible": dbus.Boolean(True),
+            }
+            return dbus.Dictionary(values, signature="sv")
+        return dbus.Dictionary({}, signature="sv")
+
+    def _layout(self):
+        children = dbus.Array(
+            [
+                dbus.Struct(
+                    (dbus.Int32(item_id), self._properties(item_id), dbus.Array([], signature="v")),
+                    signature="ia{sv}av",
+                    variant_level=1,
+                )
+                for item_id in (1, 2, 3)
+            ],
+            signature="v",
+        )
+        return dbus.Struct(
+            (dbus.Int32(0), self._properties(0), children),
+            signature="ia{sv}av",
+        )
+
+    @dbus.service.method(IFACE, in_signature="iias", out_signature="u(ia{sv}av)")
+    def GetLayout(self, _parent_id, _depth, _property_names):
+        return dbus.UInt32(self.revision), self._layout()
+
+    @dbus.service.method(IFACE, in_signature="aias", out_signature="a(ia{sv})")
+    def GetGroupProperties(self, item_ids, _property_names):
+        return [(dbus.Int32(item_id), self._properties(int(item_id))) for item_id in item_ids]
+
+    @dbus.service.method(IFACE, in_signature="is", out_signature="v")
+    def GetProperty(self, item_id, name):
+        return self._properties(int(item_id)).get(str(name), dbus.String(""))
+
+    @dbus.service.method(IFACE, in_signature="isvu", out_signature="")
+    def Event(self, item_id, event_id, _data, _timestamp):
+        if str(event_id) != "clicked":
+            return
+        if int(item_id) == 1:
+            GLib.idle_add(self.toggle_callback)
+        elif int(item_id) == 3:
+            GLib.idle_add(self.quit_callback)
+
+    @dbus.service.method(IFACE, in_signature="a(isvu)", out_signature="ai")
+    def EventGroup(self, events):
+        for item_id, event_id, data, timestamp in events:
+            self.Event(item_id, event_id, data, timestamp)
+        return dbus.Array([], signature="i")
+
+    @dbus.service.method(IFACE, in_signature="i", out_signature="b")
+    def AboutToShow(self, _item_id):
+        return False
+
+    @dbus.service.method(IFACE, in_signature="ai", out_signature="aiai")
+    def AboutToShowGroup(self, item_ids):
+        return dbus.Array([], signature="i"), dbus.Array(item_ids, signature="i")
+
+
 class TrayIcon(dbus.service.Object):
     """Minimal StatusNotifierItem used by GNOME/KDE tray implementations."""
 
     IFACE = "org.kde.StatusNotifierItem"
     PROPERTIES = "org.freedesktop.DBus.Properties"
 
-    def __init__(self, activate_callback):
+    def __init__(self, activate_callback, quit_callback):
         self.bus = dbus.SessionBus()
         self.activate_callback = activate_callback
         self.bus_name_text = "org.kde.StatusNotifierItem.ScreenHop"
         self.bus_name = dbus.service.BusName(self.bus_name_text, bus=self.bus)
         super().__init__(self.bus_name, "/StatusNotifierItem")
+        self.menu = TrayMenu(self.bus_name, activate_callback, quit_callback)
         self._register()
         GLib.timeout_add_seconds(5, self._register)
 
@@ -63,7 +152,7 @@ class TrayIcon(dbus.service.Object):
             "IconName": dbus.String("screenhop"),
             "IconThemePath": dbus.String("/usr/share/icons/hicolor"),
             "ItemIsMenu": dbus.Boolean(False),
-            "Menu": dbus.ObjectPath("/NO_DBUSMENU"),
+            "Menu": dbus.ObjectPath("/StatusNotifierMenu"),
         }
 
     def _register(self):
@@ -107,7 +196,7 @@ class TrayIcon(dbus.service.Object):
 
     @dbus.service.method(IFACE, in_signature="ii", out_signature="")
     def ContextMenu(self, _x, _y):
-        GLib.idle_add(self.activate_callback)
+        return
 
     @dbus.service.method(IFACE, in_signature="is", out_signature="")
     def Scroll(self, _delta, _orientation):
@@ -136,7 +225,7 @@ class MainWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(
             application=app,
-            title="华为键鼠穿越 Linux",
+            title=f"华为键鼠穿越 Linux v{__version__}",
             default_width=920,
             default_height=650,
         )
@@ -168,7 +257,10 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _build_ui(self):
         header = Adw.HeaderBar()
-        title = Adw.WindowTitle(title="键鼠穿越", subtitle="多设备间自然切换键盘与鼠标")
+        title = Adw.WindowTitle(
+            title=f"键鼠穿越 v{__version__}",
+            subtitle="多设备间自然切换键盘与鼠标",
+        )
         header.set_title_widget(title)
         self.connect_button = Gtk.Button(label="连接鼠标")
         self.connect_button.connect("clicked", self._connect_mouse)
@@ -834,6 +926,12 @@ class ScreenHopApp(Adw.Application):
             self._show_window()
         return False
 
+    def _quit_service(self):
+        if self.window:
+            self.window.destroy()
+        self.quit()
+        return False
+
     def do_activate(self):
         css_path = Path("/usr/lib/screenhop/style.css")
         if css_path.exists():
@@ -849,7 +947,7 @@ class ScreenHopApp(Adw.Application):
         if not self.window:
             self.window = MainWindow(self)
         if not self.tray:
-            self.tray = TrayIcon(self._toggle_window)
+            self.tray = TrayIcon(self._toggle_window, self._quit_service)
         if self._suppress_first_present:
             self._suppress_first_present = False
         else:

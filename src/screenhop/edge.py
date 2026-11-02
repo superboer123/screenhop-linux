@@ -325,27 +325,18 @@ class X11EdgeWatcher:
                 with self._lock:
                     should_arm = (not self._armed and self._arm_at and
                                   time.monotonic() >= self._arm_at)
-                if should_arm and x11.XQueryPointer(
-                        display, root, ctypes.byref(root_return),
-                        ctypes.byref(child_return), ctypes.byref(root_x),
-                        ctypes.byref(root_y), ctypes.byref(win_x),
-                        ctypes.byref(win_y), ctypes.byref(mask)):
-                    px, py = root_x.value, root_y.value
-                    on_enabled_edge = (
-                        (1 in wanted and py < threshold) or
-                        (2 in wanted and py >= height - threshold) or
-                        (3 in wanted and px < threshold) or
-                        (4 in wanted and px >= width - threshold)
-                    )
-                    with self._lock:
-                        if on_enabled_edge:
-                            self._arm_at = time.monotonic() + 0.12
-                        else:
-                            self._armed = True
-                            self._arm_at = 0.0
-                            self._last_pointer = (px, py)
-                    if not on_enabled_edge:
-                        logging.info("XWayland edge re-armed at %d,%d", px, py)
+                    if should_arm:
+                        # XQueryPointer can remain frozen at the last edge
+                        # coordinate while the real Wayland pointer is over a
+                        # native client. Waiting for it to report an interior
+                        # point left the detector permanently disarmed after
+                        # the first round trip. The delay plus outward-motion
+                        # check already prevents an immediate repeat.
+                        self._armed = True
+                        self._arm_at = 0.0
+                        self._last_pointer = None
+                if should_arm:
+                    logging.info("XWayland edge re-armed after cooldown")
 
                 if not x11.XPending(display):
                     time.sleep(0.01)

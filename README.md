@@ -43,7 +43,7 @@ Bluetooth LE GATT 协议，与 Windows/macOS 端互通，实现鼠标从屏幕�
 从 [Releases](https://github.com/superboer123/screenhop-linux/releases/latest) 下载最新 `.deb`：
 
 ```bash
-sudo apt install ./screenhop-linux_0.8.2_all.deb
+sudo apt install ./screenhop-linux_0.8.3_all.deb
 gnome-extensions enable screenhop@open-source
 ```
 
@@ -90,7 +90,7 @@ cd screenhop-linux
 
 python3 -m pytest tests/test_protocol.py
 sh packaging/build-deb.sh
-sudo apt install ./dist/screenhop-linux_0.8.2_all.deb
+sudo apt install ./dist/screenhop-linux_0.8.3_all.deb
 ```
 
 ## 实现结构
